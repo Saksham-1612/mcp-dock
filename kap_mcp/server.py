@@ -2327,7 +2327,7 @@ async def get_kapture_ticket_list(
         }
 
 @mcp.tool(name="get_folders_by_level")
-def get_folders_by_level(level: int = 2) -> dict:
+def get_folders_by_level(session_cookie: str = None,level: int = 2) -> dict:
     """
     KaptureCRM - Get Folders By Level API
 
@@ -2392,7 +2392,7 @@ def get_folders_by_level(level: int = 2) -> dict:
     url = "https://demokapairlines.kapturecrm.com/ms/ticket-configuration/ticket-configuration/get-folders-by-level"
 
     # Retrieve session cookie from env / global session store (same as previous MCP tools)
-    session_cookie = SESSION.get("cookie")
+    session_cookie = session_cookie or auth_tokens.DEFAULT_SESSION_COOKIE
     if not session_cookie:
         return {
             "error": "SESSION_COOKIE_MISSING",
@@ -2501,7 +2501,7 @@ def get_pr_config_template_by_key(
     )
 
     # Retrieve cookie from global session store
-    session_cookie = SESSION.get("cookie")
+    session_cookie = session_cookie or auth_tokens.DEFAULT_SESSION_COOKIE
     if not session_cookie:
         return {
             "error": "SESSION_COOKIE_MISSING",
