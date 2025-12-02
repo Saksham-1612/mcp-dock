@@ -1856,6 +1856,683 @@ async def reopen_kapture_tickets(
     return result
 
 
+
+@mcp.tool()
+async def search_kapture_employees(
+    search_value: str = "",
+    offset: int = 0,
+    page_size: int = 10,
+    base_url: str = BASE_URL,
+    session_cookie: str = None,
+    jsessionid: str = None,
+    jsessionrid: str = None
+) -> dict:
+    """Search and retrieve employees from KaptureCRM system.
+    
+    This API searches for employees based on a search value and returns paginated results.
+    You can search by employee name, email, username, or other employee attributes.
+    
+    **Endpoint Used**
+    POST https://demokapairlines.kapturecrm.com/ms/employee/api/v1/employee-search
+    
+    **Search Functionality**
+    - Pass an empty string "" in search_value to retrieve all employees (paginated)
+    - Pass a specific name, email, or username to filter results
+    - Results are paginated using offset and page_size parameters
+    
+    Args:
+        search_value: Employee search term (name, email, username, etc.)
+                     Use empty string "" to retrieve all employees
+                     Examples: "John Doe", "john@example.com", "johndoe123"
+        offset: Starting position for pagination (default: 0)
+                Example: offset=0 gets first page, offset=10 gets second page
+        page_size: Number of records per page (default: 10)
+                   Example: page_size=10 returns 10 employees per request
+        base_url: KaptureCRM base URL
+        session_cookie: _KAPTURECRM_SESSION cookie value
+        jsessionid: JSESSIONID cookie value
+        jsessionrid: JSESSIONRID cookie value
+    
+    Returns:
+        dict: API response containing employee search results
+            {
+                "success": true/false,
+                "employees": [...],
+                "totalCount": 100,
+                "offset": 0,
+                "pageSize": 10
+            }
+    
+    Example:
+        # Search for all employees
+        search_kapture_employees(search_value="")
+        
+        # Search for specific employee
+        search_kapture_employees(search_value="John Doe")
+        
+        # Get second page of results
+        search_kapture_employees(search_value="", offset=10, page_size=10)
+    
+    Use Cases:
+        - Finding an employee by name before assigning tickets
+        - Listing all available employees in a team
+        - Searching for employees by email or username
+        - Paginating through large employee lists
+    
+    Note: search_value is mandatory - always pass it even if empty string.
+    """
+    # Use default auth tokens if not provided
+    session_cookie = session_cookie or auth_tokens.DEFAULT_SESSION_COOKIE
+    jsessionid = jsessionid or auth_tokens.DEFAULT_JSESSIONID
+    jsessionrid = jsessionrid or auth_tokens.DEFAULT_JSESSIONRID
+    
+    # Construct the API endpoint
+    url = f"{base_url}/ms/employee/api/v1/employee-search"
+    
+    # Prepare headers
+    headers = {
+        "Content-Type": "application/json",
+        "Cookie": f"_KAPTURECRM_SESSION={session_cookie}; JSESSIONID={jsessionid}; JSESSIONRID={jsessionrid}"
+    }
+    
+    # Prepare request payload
+    payload = {
+        "offset": offset,
+        "pageSize": page_size,
+        "searchValue": search_value
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30.0
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPError as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Failed to search employees in KaptureCRM"
+        }
+
+@mcp.tool()
+async def get_kapture_employee_by_id(
+    employee_id: str = None,
+    employee_name: str = None,
+    base_url: str = BASE_URL,
+    session_cookie: str = None,
+    jsessionid: str = None,
+    jsessionrid: str = None
+) -> dict:
+    """
+    Retrieve detailed employee information from the KaptureCRM system.
+
+    This API fetches a specific employee's complete details using the employee ID.
+    It supports multiple access patterns:
+    
+    1. **Direct ID Lookup (Recommended)**
+       - If `employee_id` is provided, the tool directly calls the
+         `get-employee-by-employeeid/{employeeId}` endpoint.
+       
+    2. **Name-based Lookup (Flexible)**
+       - If `employee_name` is provided and `employee_id` is not:
+         - The tool internally calls `search_kapture_employees(search_value=employee_name)`
+         - Extracts the most relevant employee result
+         - Uses its ID to call the current API
+         
+       This is useful when the user only knows the employee name.
+
+    ------------------------------------------------------------------
+
+    **Endpoint Used**
+    GET https://demokapairlines.kapturecrm.com/ms/employee/api/v1/get-employee-by-employeeid/{employeeId}
+
+    **Input Modes**
+    - Provide `employee_id` directly  
+      → Fastest and most accurate  
+    - Provide `employee_name`  
+      → Tool will search and resolve to an ID automatically
+
+    ------------------------------------------------------------------
+
+    Args:
+        employee_id: Employee ID to look up.
+                     Example: "308263"
+                     If provided, name-based search is skipped.
+
+        employee_name: Name of employee to search for.
+                       Example: "John Doe"
+                       Used only if `employee_id` is not provided.
+
+        base_url: KaptureCRM base URL.
+
+        session_cookie: _KAPTURECRM_SESSION cookie value.
+        jsessionid:     JSESSIONID cookie value.
+        jsessionrid:    JSESSIONRID cookie value.
+
+    ------------------------------------------------------------------
+
+    Returns:
+        dict: Employee details returned by the KaptureCRM API.
+              Example:
+              {
+                  "success": true,
+                  "employee": { ... },
+                  "message": "...",
+              }
+
+    ------------------------------------------------------------------
+
+    Example:
+        # Direct lookup by ID
+        get_kapture_employee_by_id(employee_id="308263")
+
+        # Name-based lookup (ID resolved automatically)
+        get_kapture_employee_by_id(employee_name="John Doe")
+
+        # If both are passed, employee_id takes priority
+        get_kapture_employee_by_id(employee_id="308263", employee_name="John")
+
+    ------------------------------------------------------------------
+
+    Use Cases:
+        - Retrieve detailed employee info after searching employees
+        - Validate employee existence before ticket assignment
+        - Fetch employee details using either name or ID
+        - Automatically resolve names → IDs → details in one tool call
+
+    ------------------------------------------------------------------
+
+    Notes:
+        - If employee_name is used, the tool will internally call:
+              search_kapture_employees(search_value=employee_name)
+        - Do not change any quoted values.
+        - Session tokens follow the same pattern as the previous tool.
+    """
+
+    # Use default auth tokens if not provided (same pattern as previous tool)
+    session_cookie = session_cookie or auth_tokens.DEFAULT_SESSION_COOKIE
+    jsessionid = jsessionid or auth_tokens.DEFAULT_JSESSIONID
+    jsessionrid = jsessionrid or auth_tokens.DEFAULT_JSESSIONRID
+
+    # If employee_id is NOT provided but employee_name is
+    if not employee_id and employee_name:
+        try:
+            # Search employees by name
+            search_result = await search_kapture_employees(
+                search_value=employee_name,
+                session_cookie=session_cookie,
+                jsessionid=jsessionid,
+                jsessionrid=jsessionrid
+            )
+
+            if (
+                search_result.get("success") is False
+                or "employees" not in search_result
+                or len(search_result.get("employees", [])) == 0
+            ):
+                return {
+                    "success": False,
+                    "message": f"No employee found matching name '{employee_name}'",
+                    "searchResponse": search_result,
+                }
+
+            # Pick the most relevant employee (first entry)
+            top_employee = search_result["employees"][0]
+            employee_id = str(top_employee.get("employeeId") or top_employee.get("id"))
+
+            if not employee_id:
+                return {
+                    "success": False,
+                    "message": f"Unable to extract employeeId from search result for '{employee_name}'",
+                    "searchResponse": search_result,
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed resolving employee name '{employee_name}' to an employeeId"
+            }
+
+    # Final validation: employee_id must exist now
+    if not employee_id:
+        return {
+            "success": False,
+            "message": "Either employee_id or employee_name must be provided."
+        }
+
+    # Build API URL using employee_id
+    url = f"{base_url}/ms/employee/api/v1/get-employee-by-employeeid/{employee_id}"
+
+    # Prepare headers
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Cookie": (
+            f"_KAPTURECRM_SESSION={session_cookie}; "
+            f"JSESSIONID={jsessionid}; "
+            f"JSESSIONRID={jsessionrid}"
+        ),
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers=headers,
+                timeout=30.0
+            )
+            response.raise_for_status()
+            return response.json()
+
+    except httpx.HTTPError as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to fetch employee details for employeeId={employee_id}"
+        }
+
+@mcp.tool()
+async def get_kapture_ticket_list(
+    sort_by_column: str = "last_conversation_time",
+    type: str = "5",
+    status: str = "P",
+    folder_id: str = "-1",
+    page_no: int = 0,
+    sort_type: str = "desc",
+    page_size: int = 50,
+    query: str = "status=P&reopened=&sub_status=&emp_id=-1&type=&emp_queue=&priority=&viewfilter_id=&cus_customer_code=&customer_name=&customer_phone=&customer_email=&folder_id=-1",
+    response_type: str = "json",
+    base_url: str = BASE_URL,
+    session_cookie: str = None,
+    jsessionid: str = None,
+    jsessionrid: str = None,
+    ksid: str = None
+) -> dict:
+    """
+    Retrieve a list of tickets from the KaptureCRM system.
+
+    This API returns ticket data based on filter, sort and pagination parameters.
+    The request is made as *x-www-form-urlencoded* and supports multiple ticket types,
+    statuses, sub-statuses and employee-level filters.
+
+    ------------------------------------------------------------------
+
+    **Endpoint Used**
+    POST https://demokapairlines.kapturecrm.com/api/version3/ticket/get-ticket-list
+
+    **Core Parameters**
+    - "sort_by_column": Sorting field (default "last_conversation_time")
+    - "type": Ticket type (default "5")
+    - "status": Ticket status (default "P")
+    - "folder_id": Folder filter (default "-1")
+    - "page_no": Pagination index (default 0)
+    - "sort_type": Sorting order ("asc" / "desc")
+    - "page_size": Items per page (default 50)
+    - "query": Extensive filter query string
+    - "response_type": Always "json"
+
+    ------------------------------------------------------------------
+
+    **Status Reference**
+        TASK_PENDING = 'P'
+        TASK_COMPLETE = 'C'
+        JUNK_TASK = 'J'
+
+    **Ticket Type Reference**
+        CALL_TASK = 'B'
+        CHAT_TASK = 'D'
+        AMC_TICKET = 'A'
+        GENERAL_TASK = 'G'
+        TWITTER_TASK = 'T'
+        FACEBOOK_TASK = 'F'
+        INTERNAL_TICKET = 'I'
+        GOOGLE_PLAY_TASK = 'X'
+        INSTAGRAM_TASK = 'M'
+        EMAIL_TICKET_TASK = 'E'
+        OTHER_COMMUNICATION_TASK = 'O'
+        CUSTOMER_TASK = 'H'
+        WHATSAPP_TASK = 'W'
+        YOUTUBE_TASK = 'Y'
+        GOOGLE_REVIEW_TASK = 'Q'
+        LINKEDIN_TASK = 'R'
+        GOOGLE_BUSINESS_MESSAGES_TASK = 'S'
+        APPLE_APP_STORE_TASK = 'x'
+        LINE_TASK = 'P'
+
+    **SubStatus Reference**
+        PENDING_SUB_STATUS = "PS"
+        REPLIED_SUB_STATUS = "RES"
+        RESOLVED_SUB_STATUS = "RS"
+        ANSWERED_SUB_STATUS = "AS"
+        UNANSWERED_SUB_STATUS = "UAS"
+        UNATTENDED_SUB_STATUS = "US"
+        CUSTOMER_REPLIED_SUB_STATUS = "CRS"
+
+    Note:
+        - emp_id=-1 means "all employees"
+        - The "query" parameter must always contain the exact raw string you pass.
+
+    ------------------------------------------------------------------
+
+    Args:
+        sort_by_column: Column name for sorting ("last_conversation_time").
+        type: Ticket type.
+        status: Ticket status.
+        folder_id: Folder filter.
+        page_no: Page number for pagination.
+        sort_type: Sorting order.
+        page_size: Page size.
+        query: Raw query string for filters (must be passed as-is).
+        response_type: "json" (default).
+        base_url: Base URL for KaptureCRM system.
+        session_cookie: _KAPTURECRM_SESSION value.
+        jsessionid: JSESSIONID value.
+        jsessionrid: JSESSIONRID value.
+        ksid: _KSID cookie value.
+
+    ------------------------------------------------------------------
+
+    Returns:
+        dict: Response object containing ticket list, pagination details, and metadata.
+
+    ------------------------------------------------------------------
+
+    Example:
+        # Get default ticket list (pending tickets)
+        get_kapture_ticket_list()
+
+        # Sort by priority
+        get_kapture_ticket_list(sort_by_column="priority")
+
+        # Get next page
+        get_kapture_ticket_list(page_no=1)
+
+        # Fetch tickets of specific type
+        get_kapture_ticket_list(type="E")  # email tickets
+
+        # Custom query string
+        get_kapture_ticket_list(query="status=P&emp_id=123&folder_id=-1")
+
+    ------------------------------------------------------------------
+
+    Use Cases:
+        - Fetch all pending tickets for an agent dashboard
+        - Get tickets sorted by conversation time or priority
+        - Filter tickets by employee, customer, type, or status
+        - Create custom ticket reports or insights
+        - Paginate through large ticket sets
+
+    ------------------------------------------------------------------
+
+    Notes:
+        - All parameters with quotes MUST be preserved exactly.
+        - Cookie handling follows the same pattern as previous tools.
+        - Request must use x-www-form-urlencoded, not JSON.
+
+    """
+
+    # Token fallback (same pattern as previous tools)
+    session_cookie = session_cookie or auth_tokens.DEFAULT_SESSION_COOKIE
+    jsessionid = jsessionid or auth_tokens.DEFAULT_JSESSIONID
+    jsessionrid = jsessionrid or auth_tokens.DEFAULT_JSESSIONRID
+    ksid = ksid or auth_tokens.DEFAULT_KSID
+
+    url = f"{base_url}/api/version3/ticket/get-ticket-list"
+
+    # Headers
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Cookie": (
+            f"_KAPTURECRM_SESSION={session_cookie}; "
+            f"JSESSIONID={jsessionid}; "
+            f"JSESSIONRID={jsessionrid}; "
+            f"_KSID={ksid}"
+        )
+    }
+
+    # Payload for x-www-form-urlencoded
+    form_data = {
+        "sort_by_column": sort_by_column,
+        "type": type,
+        "status": status,
+        "folder_id": folder_id,
+        "query": query,
+        "page_no": page_no,
+        "sort_type": sort_type,
+        "page_size": page_size,
+        "response_type": response_type
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                data=form_data,
+                headers=headers,
+                timeout=30.0
+            )
+            response.raise_for_status()
+            return response.json()
+
+    except httpx.HTTPError as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Failed to retrieve ticket list from KaptureCRM"
+        }
+
+@mcp.tool(name="get_folders_by_level")
+def get_folders_by_level(level: int = 2) -> dict:
+    """
+    KaptureCRM - Get Folders By Level API
+
+    This tool calls the remote KaptureCRM API to retrieve folder details for a specific folder hierarchy level.
+
+    ---
+    ### 🔍 **Description**
+    This API fetches ticket folders based on the folder level.  
+    It accepts a JSON body with a single field:
+
+    - `level`: (number) The folder level you want to fetch.  
+      Example: level = 2
+
+    ---
+    ### 📌 **Request Type**
+    `POST`  
+    `Content-Type: application/json`
+
+    ---
+    ### 🧩 **Session Token Handling**
+    - Uses the same cookie format and handling pattern used in previous tools.
+    - The caller must supply the session cookie before invoking this tool.
+    - Cookie must contain values in **exact same format** as:
+
+        ```
+        _KAPTURECRM_SESSION=rmdjjhnjjcnimda493ossnigol184607rmdjjhnjjchwrxu8tgd5;; 
+        JSESSIONID=C530D631B5D92AE541E08FE157AB54DA; 
+        JSESSIONRID=3SDmlhjtZ1s2DmlhjtZ
+        ```
+
+    ---
+    ### 📝 **Parameters**
+    - `level` (int) → folder level to fetch  
+      **Default:** `2` (matches your example request)
+
+    ---
+    ### 📤 **Returns**
+    - JSON response from KaptureCRM
+    - If an error occurs, returns a structured error payload with status code and message.
+
+    ---
+    ### 🧪 **Example Invocation**
+    ```json
+    {
+      "tool": "get_folders_by_level",
+      "arguments": {
+        "level": 2
+      }
+    }
+    ```
+
+    ---
+    ### 🚦 **Notes for the LLM**
+    - Do not change the value of `level` unless user gives a new value.
+    - Do not modify any string literals inside cookies.
+    - This tool must use `application/json` and send body as raw JSON exactly like the curl example.
+    """
+
+    import requests
+    import json
+
+    url = "https://demokapairlines.kapturecrm.com/ms/ticket-configuration/ticket-configuration/get-folders-by-level"
+
+    # Retrieve session cookie from env / global session store (same as previous MCP tools)
+    session_cookie = SESSION.get("cookie")
+    if not session_cookie:
+        return {
+            "error": "SESSION_COOKIE_MISSING",
+            "message": "Session cookie is required. Use set_kapture_session_cookie() before calling this tool."
+        }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Cookie": session_cookie
+    }
+
+    payload = {
+        "level": level
+    }
+
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        return {
+            "status_code": response.status_code,
+            "data": response.json() if response.text else {}
+        }
+    except Exception as e:
+        return {
+            "error": "REQUEST_FAILED",
+            "message": str(e)
+        }
+
+@mcp.tool(name="get_pr_config_template_by_key")
+def get_pr_config_template_by_key(
+    prKey: str = "TWITTER_DM_AND_TWEET_SAME_USER_NO_MERGE"
+) -> dict:
+    """
+    KaptureCRM - Get Partner Resource Configuration Template By Key API
+
+    This tool calls the remote KaptureCRM API to retrieve the configuration template
+    structure for a given *partner resource key* (prKey). This API helps determine the
+    exact JSON structure or value format that should be provided when entering or
+    updating a partner resource value.
+
+    ---
+    ### 🔍 Description
+    This API fetches the *partner-resource configuration template* based on the given prKey.  
+    It accepts a single **request query param**:
+
+    - `prKey`: A partner resource key that maps to a specific template structure.  
+      Example (must stay exactly as provided):  
+      `"TWITTER_DM_AND_TWEET_SAME_USER_NO_MERGE"`
+
+    The response defines **how PR values should be structured/formatted** during create/update operations.
+
+    ---
+    ### 📌 Request Type
+    `POST` request  
+    No body is passed.  
+    `prKey` is passed strictly via **query parameters**.
+
+    ---
+    ### 🧩 Session Token Handling
+    - Uses the **same session cookie management** pattern as previous MCP tools.
+    - User must first call:  
+      `set_kapture_session_cookie("_KAPTURECRM_SESSION=...; JSESSIONID=...; JSESSIONRID=...")`
+    - Cookies must remain **exactly as provided**.  
+      Nothing inside quotes should be altered.
+
+    Example cookie format expected (unchanged):
+    ```
+    _KAPTURECRM_SESSION=tkkd8ehb4znimda493ossnigol184607tkkd8ehb4zho0tr202e1;; 
+    JSESSIONID=40D61D29CCAA43BFBB3E3D499828FC01; 
+    JSESSIONRID=3SDmlhjtZ1s2DmlhjtZ; 
+    _KSID=01f69559a32849629767f3b397d1f383.3SDmlhjtZ1s2DmlhjtZ
+    ```
+
+    ---
+    ### 📝 Parameters
+    - `prKey` (string) – Partner resource key used to retrieve the config structure.  
+      **Default:** `"TWITTER_DM_AND_TWEET_SAME_USER_NO_MERGE"`
+
+    ---
+    ### 📤 Returns
+    - JSON response containing the configuration template.
+    - Or an error dictionary with details.
+
+    ---
+    ### 🧪 Example Invocation
+    ```json
+    {
+      "tool": "get_pr_config_template_by_key",
+      "arguments": {
+        "prKey": "TWITTER_DM_AND_TWEET_SAME_USER_NO_MERGE"
+      }
+    }
+    ```
+
+    ---
+    ### ⚠ Notes for the LLM
+    - Do **not** modify `prKey` unless the user provides a new value.
+    - Do **not** modify cookie text under any condition.
+    - This is a **POST** API with **no body** and **only query params**.
+    """
+
+    import requests
+
+    base_url = (
+        "https://demokapairlines.kapturecrm.com/api/version3/ticket/"
+        "get-pr-config-template-by-key"
+    )
+
+    # Retrieve cookie from global session store
+    session_cookie = SESSION.get("cookie")
+    if not session_cookie:
+        return {
+            "error": "SESSION_COOKIE_MISSING",
+            "message": (
+                "Session cookie is required. "
+                "Use set_kapture_session_cookie() before calling this tool."
+            )
+        }
+
+    headers = {
+        "Cookie": session_cookie
+    }
+
+    params = {
+        "prKey": prKey  # must remain exactly as user passed
+    }
+
+    try:
+        response = requests.post(base_url, headers=headers, params=params)
+        return {
+            "status_code": response.status_code,
+            "data": response.json() if response.text else {}
+        }
+    except Exception as e:
+        return {
+            "error": "REQUEST_FAILED",
+            "message": str(e)
+        }
+
+
+
 if __name__ == "__main__":
     # Run the MCP server with HTTP transport (remote)
     mcp.run(transport="http", host="0.0.0.0", port=8080)
